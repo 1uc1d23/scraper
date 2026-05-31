@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stream</title>
-<script src="https://cdn.jwplayer.com/libraries/IDzF9ZOk.js"></script>
+<link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; background: #000; font-family: system-ui, sans-serif; color: #fff; overflow: hidden; }
@@ -29,7 +30,8 @@ html, body { width: 100%; height: 100%; background: #000; font-family: system-ui
 #loader-text { position: relative; z-index: 1; font-size: .95rem; color: rgba(255,255,255,.6); letter-spacing: .04em; text-shadow: 0 1px 4px #000; }
 
 #player-container { position: fixed; inset: 0; display: none; background: #000; }
-#jw-player { width: 100% !important; height: 100% !important; }
+/* Make Video.js fill the entire screen seamlessly */
+.video-js { width: 100% !important; height: 100% !important; }
 
 #usage {
   position: fixed; inset: 0; display: none; flex-direction: column;
@@ -75,7 +77,7 @@ html, body { width: 100%; height: 100%; background: #000; font-family: system-ui
 </div>
 
 <div id="player-container">
-  <div id="jw-player"></div>
+  <video id="my-video" class="video-js vjs-default-skin" controls autoplay playsinline></video>
 </div>
 
 <script>
@@ -138,16 +140,14 @@ if (!id) {
 } else {
   loadBackdrop(id, !!s);
   
-  // 1. Generate URLs for both video stream API and your subtitle API
   var api = '/api?' + (s ? 'id='+id+'&s='+s+'&e='+(e||'1') : 'id='+id);
   var subApi = s 
     ? 'https://sub.vdrk.site/v2/tv/' + id + '/' + s + '/' + (e || '1')
     : 'https://sub.vdrk.site/v2/movie/' + id;
 
-  // 2. Fetch stream and subtitles simultaneously
   Promise.all([
     fetch(api).then(function(r) { return r.json(); }),
-    fetch(subApi).then(function(r) { return r.json(); }).catch(function() { return []; }) // Fail silently to empty array if no subs found
+    fetch(subApi).then(function(r) { return r.json(); }).catch(function() { return []; })
   ])
   .then(function(results) {
     var streamData = results[0];
@@ -155,46 +155,55 @@ if (!id) {
 
     if (streamData.error) return showErr(streamData.error);
     
-    // 3. Format subtitle array into the layout JW Player expects
+    // Format subtitle JSON data array for Video.js configuration layout
     var formattedTracks = subData.map(function(track) {
       return {
         kind: 'captions',
-        file: track.file,
+        src: track.file,
+        srclang: track.label.toLowerCase().substring(0, 2), // e.g., 'en', 'ar'
         label: track.label,
-        'default': track.label.toLowerCase() === 'english' // Auto-enables English captions if found
+        default: track.label.toLowerCase() === 'english'
       };
     });
 
-    // 4. Pass the stream and the formatted subtitle tracks to JW Player
     play(streamData.url, formattedTracks);
   })
   .catch(function(err) { showErr(err.message); });
 }
 
 function play(rawUrl, tracks) {
-  // Use raw stream URL directly bypassing the internal file proxy rewrite
-  var src = rawUrl; 
+  var videoElement = document.getElementById('my-video');
+  
+  // Set the direct HLS stream source file
+  videoElement.innerHTML = '<source src="' + rawUrl + '" type="application/x-mpegURL">';
+  
+  // Append parsed subtitle tracks directly to the video element inside DOM
+  tracks.forEach(function(track) {
+    var trackTag = document.createElement('track');
+    trackTag.kind = track.kind;
+    trackTag.src = track.src;
+    trackTag.srclang = track.srclang;
+    trackTag.label = track.label;
+    if (track.default) trackTag.default = true;
+    videoElement.appendChild(trackTag);
+  });
 
-  // Initialize JW Player config
-  var playerInstance = jwplayer("jw-player").setup({
-    file: src,
-    type: "hls",
-    autostart: true,
+  // Initialize Video.js engine instance
+  var player = videojs('my-video', {
+    autoplay: true,
     controls: true,
-    width: "100%",
-    height: "100%",
-    stretching: "uniform",
-    tracks: tracks // Injects our parsed subtitle array
+    fluid: false,
+    preload: 'auto'
   });
 
-  // Handle successful media play state to remove the screen loading block
-  playerInstance.on('ready', function() {
+  player.ready(function() {
     showPlayer();
+    player.play().catch(function(){});
   });
 
-  // Handle runtime player crashing errors gracefully
-  playerInstance.on('error', function(e) {
-    showErr(e.message || 'JW Player fatal stream error');
+  player.on('error', function() {
+    var error = player.error();
+    showErr(error ? error.message : 'Video.js media playback error');
   });
 }
 </script>
