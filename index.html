@@ -148,7 +148,9 @@ if (!id) {
 }
 
 function play(rawUrl) {
-  var src = '/api?url=' + encodeURIComponent(rawUrl);
+  // FIX: Change this line to use rawUrl directly instead of wrapping it in /api?url=
+  var src = rawUrl; 
+  
   var v = document.getElementById('v');
   if (Hls.isSupported()) {
     var hls = new Hls({ enableWorker: true });
